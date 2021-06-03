@@ -1,28 +1,37 @@
 const { spawn, exec, spawnSync } = require("child_process");
+const sudo = require('sudo-js');
+
 let redebug=false;
   const waitprocess={}
 	const sleepAndCheck = (cmd, ms) => {
 		return new Promise((resolve, reject) => {
 			setTimeout(() => {
-				let command_output = spawnSync(cmd, { shell: true });
-				resolve(command_output);
+				if(redebug) console.log("launching checker")
+				exec(cmd,{ shell: true }, (error, stdout, stderr) => {
+					//let command_output = spawnSync(cmd, { shell: true });
+					if(!error && !stderr)
+						resolve(stdout);
+					else
+						if(redebug) console.log("launching failed "+ JSON.stringify(error | stderr))
+				})
 			}, ms);
 		});
-	};
+	}
 
-	waitprocess.waitRunning = (process_name, isRunning, timeout) => {
+	waitprocess.waitRunning = (process_name, ShouldBeRunning, timeout) => {
 		return new Promise((resolve, reject) => {
+			let save_timeout=timeout
 			let platform = process.platform;
 			let cmd = "";
 			switch (platform) {
 				case "win32":
-					cmd = `tasklist`;
+					cmd = `tasklist /fi "ImageName eq ${process_name}"`;
 					break;
 				case "darwin":
-					cmd = `bash -c "ps -ax | grep ${process_name}"`;
+					cmd = `bash -c "ps -ax | grep ${process_name} | grep signed | grep -v grep"`;
 					break;
 				case "linux":
-					cmd = `ps -A | grep ${process_name}| tr -d '\n'`;
+					cmd = `ps -A | grep ${process_name}| grep -v grep |tr -d '\n'`;
 					break;
 				default:
 					break;
@@ -31,7 +40,7 @@ let redebug=false;
 			let minimum_delay = 100;
 			if (redebug)
 				console.log(
-					" checking on recorder is " + isRunning
+					" checking on recorder is " + ShouldBeRunning
 						? ""
 						: "not" + " running still"
 				);
@@ -40,14 +49,13 @@ let redebug=false;
 				() => {
 					// start one and check if its running
 					sleepAndCheck(cmd, minimum_delay).then((r) => {
-						//r.stdout=r.buffer.toString()
 						if (redebug)
 							console.log(
-								"recorder process list ='" + r.stdout + "'"
+								"recorder process list ='" + r + "'"
 							);
 						// check the cmd results
-						let s = r.stdout.toString().toLowerCase();
-						if (isRunning == false) {
+						let s = r.toString().toLowerCase();
+						if (ShouldBeRunning == false) {
 							if (!s.includes(process_name.toLowerCase())) {
 								clearInterval(timerHandle);
 								if (redebug)
@@ -60,6 +68,15 @@ let redebug=false;
 								return;
 								if(redebug)
 									console.log('not found continuing after return????')
+							} else {
+								if(timeout<(save_timeout/2)){
+									//clearInterval(timerHandle)
+									if(redebug) console.log("force killing recorder ="+process_name)
+									save_timeout=timeout
+									sudo.killByName(process_name, (err, pid, result)=>{
+										if(!err){}
+									})
+								}
 							}
 						} else {
 							if (redebug)
@@ -67,7 +84,7 @@ let redebug=false;
 									" testing for '" +
 										process_name +
 										"' in stdout=" +
-										r.stdout.toString()
+										r.toString()
 								);
 							if (s.includes(process_name.toLowerCase())) {
 								clearInterval(timerHandle);
